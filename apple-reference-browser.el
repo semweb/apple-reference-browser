@@ -9,15 +9,13 @@
 
 (defcustom arb:cache-path
   (format "~/.emacs.c/lisp/%s" arb:cache-name)
-  "")
+  "anything candidates cache file path")
 
-;;; docset path
 (defcustom arb:docset-path
   "/Developer/Platforms/iPhoneOS.platform/Developer/Documentation/DocSets/com.apple.adc.documentation.AppleiOS4_2.iOSLibrary.docset"
-  "")
+  "docset path")
 
-;;; w3m open in other buffer
-(defcustom arb:open-w3m-other-buffer t "")
+(defcustom arb:open-w3m-other-buffer t "w3m open in other buffer")
 
 (defun arb:docset-lib-json-path ()
   (format "%s%s" 
