@@ -5,11 +5,15 @@
 
 (defvar arb:candidates nil)
 
-(defvar arb:cache-name "apple-reference-browser-candidates.el")
+(defvar arb:cache-name "apple-reference-browser-candidates")
 
 (defcustom arb:cache-path
-  (format "~/.emacs.c/lisp/%s" arb:cache-name)
+  (format "~/.emacs.d/lisp/%s" arb:cache-name)
   "anything candidates cache file path")
+
+(defcustom arb:cache-directory
+  (format "~/.emacs.d/lisp/")
+  "anything candidates cache file directory")
 
 (defcustom arb:docset-path
   "/Developer/Platforms/iPhoneOS.platform/Developer/Documentation/DocSets/com.apple.adc.documentation.AppleiOS4_2.iOSLibrary.docset"
@@ -65,16 +69,19 @@
         ((string= title "Notifications") "Notf")
         ((string= title "Functions") "Func")))
 
-(defun arb:get-apis (book book-path)
-  (let ((sym-sections (remove-if-not (lambda (x) (member (cdr (assq 'title x)) arb:api-title-list))
-                                     (append (cdr (assq 'sections book)) nil)))
-        (book-name (assq 'title book))
-        ret)
+(defun arb:get-apis (doc)
+  (let* ((book-path (arb:book-json-path (arb:absolute-doc-path 
+                                        (arb:remove-anchor (elt doc url-index)))))
+         (book (arb:read-json book-path))
+         (sym-sections (remove-if-not (lambda (x) (member (cdr (assq 'title x)) arb:api-title-list))
+                                      (append (cdr (assq 'sections book)) nil)))
+         (book-name (assq 'title book))
+         ret)
     (dolist (section (append sym-sections nil))
       (let ((apis (append (cdr (assq 'sections section)) nil))
             (section-title (cdr (assq 'title section))))
         (dolist (api apis)
-          (push (cons (format "[%s][%s] %s"
+          (push (cons (format "%s;[%s] %s"
                               (car (split-string (cdr book-name) " "))
                               (arb:abbrev-title section-title)
                               (cdr (assq 'title api)))
@@ -89,8 +96,7 @@
   (format "file://%s" file-path))
 
 (defun arb:init (&optional remove-cache)
-  (if (and (file-exists-p arb:cache-path) (not remove-cache))
-      (load arb:cache-path)
+  (when (or remove-cache (not (file-exists-p arb:cache-path)))
     (let* ((lib (arb:read-json (arb:docset-lib-json-path)))
            (cols (cdr (assq 'columns lib)))
            (url-index (cdr (assq 'url cols)))
@@ -100,28 +106,59 @@
            (docs (remove-if-not
                   (lambda (x) (equalp (elt x type-index) reference-num))
                   (cdr (assq 'documents lib))))
-           candidates)
-      (dolist (doc (append docs nil))
-        (let* ((book-url (arb:book-json-path (arb:absolute-doc-path 
-                                              (arb:remove-anchor (elt doc url-index)))))
-               (book (arb:read-json book-url))
-               (apis (arb:get-apis book book-url)))
-          (setq candidates (append candidates apis))))
-      (setq arb:candidates (nreverse candidates))
-      (arb:save-cache))))
+           (classes (remove-if-not
+                     (lambda (x) (string-match "Class" (elt x 0)))
+                     docs))
+           (protocols (remove-if-not
+                     (lambda (x) (string-match "Protocol" (elt x 0)))
+                     docs))
+           (additions (remove-if-not
+                     (lambda (x) (string-match "Additions" (elt x 0)))
+                     docs))
+           (others (remove-if
+                     (lambda (x) (string-match "Class\\|Protocol\\|Additions" (elt x 0)))
+                     docs)))
+      (arb:write-file-cache 
+       (apply 'append (mapcar (lambda (x)
+                                (arb:get-apis x))
+                              classes))
+       "apple-reference-browser-candidates-class")
+      (arb:write-file-cache 
+       (apply 'append (mapcar (lambda (x)
+                                (arb:get-apis x))
+                              protocols))
+       "apple-reference-browser-candidates-protocol")
+      (arb:write-file-cache 
+       (apply 'append (mapcar (lambda (x)
+                                (arb:get-apis x))
+                              additions))
+       "apple-reference-browser-candidates-additions")
+      (arb:write-file-cache 
+       (apply 'append (mapcar (lambda (x)
+                                (arb:get-apis x))
+                              others))
+       "apple-reference-browser-candidates-other"))))
 
-(defun arb:save-cache ()
-  (with-temp-buffer
-    (insert "(setq arb:candidates '")
-    (insert (prin1-to-string arb:candidates))
-    (insert ")")
-    (write-file arb:cache-path)))
+(defun arb:write-file-cache (apis file-name)
+  (with-temp-file (concat arb:cache-directory file-name)
+    (dolist (api apis)
+      (insert (car api))
+      (insert ",")
+      (insert (cdr api))
+      (insert "\n"))))
 
 (defun arb:open-w3m (url)
   (cond
    (arb:open-w3m-other-buffer
-    (let ((b (save-window-excursion (w3m-browse-url url nil) (get-buffer "*w3m*"))))
-      (ignore-errors (save-selected-window (pop-to-buffer "*w3m*")))))
+    (let* ((urls (split-string url "#"))
+           (url (car urls))
+           (anchor (cadr urls)))
+      (save-window-excursion 
+        (w3m-browse-url url nil) 
+        (get-buffer "*w3m*"))
+      (save-selected-window 
+        (pop-to-buffer "*w3m*" t)
+        (if anchor (w3m-search-name-anchor anchor)))))
    (t
     (w3m-browse-url url nil))))
 
@@ -131,15 +168,84 @@
     (replace-regexp-in-string "&lt;" "<"
      (replace-regexp-in-string "&gt;" ">" name)))))
 
+(defun arb:insert (url)
+  (let ((path (car (split-string (substring url 7) "#"))))
+    (with-temp-buffer
+      (insert-file-contents path)
+      (re-search-backward "<div class=\"declaration\">(.*)</div>")
+      )
+    (insert (match 0))))
+
 (defun arb:search ()
   (interactive)
-  (anything 'anything-c-source-apple-reference))
+  (arb:init)
+  (let ((anything-display-function
+         (lambda (buf)
+           (if anything-samewindow 
+               (funcall 'switch-to-buffer buf)
+             (funcall 'pop-to-buffer buf t)))))
+    (anything-other-buffer '(anything-c-source-apple-reference-class
+                             anything-c-source-apple-reference-protocol
+                             anything-c-source-apple-reference-additions
+                             anything-c-source-apple-reference-other)
+                           "reference library")))
 
-(defvar anything-c-source-apple-reference
-  '((name . "Reference Library")
-    (candidates . arb:candidates)
+(defvar anything-c-source-apple-reference-class
+  `((name . "Class")
+    (candidates-file . ,(concat arb:cache-directory "apple-reference-browser-candidates-class"))
+    (filtered-candidate-transformer 
+     . (lambda (cands source)
+         (mapcar (lambda (x) 
+                   (let ((s (split-string x ",")))
+                     (cons (car s) (cadr s))))
+                 cands)))
+    (requires-pattern . 2)
     (action . (("w3m" . arb:open-w3m)
-               ("Default Browser" . browse-url)))))
+               ("Default Browser" . browse-url)
+               ("insert" . arb:insert)))))
+
+
+(defvar anything-c-source-apple-reference-protocol
+  `((name . "Protocol")
+    (candidates-file . ,(concat arb:cache-directory "apple-reference-browser-candidates-protocol"))
+    (filtered-candidate-transformer 
+     . (lambda (cands source)
+         (mapcar (lambda (x) 
+                   (let ((s (split-string x ",")))
+                     (cons (car s) (cadr s))))
+                 cands)))
+    (requires-pattern . 2)
+    (action . (("w3m" . arb:open-w3m)
+               ("Default Browser" . browse-url)
+               ("insert" . arb:insert)))))
+
+(defvar anything-c-source-apple-reference-additions
+  `((name . "Additions")
+    (candidates-file . ,(concat arb:cache-directory "apple-reference-browser-candidates-additions"))
+    (filtered-candidate-transformer 
+     . (lambda (cands source)
+         (mapcar (lambda (x) 
+                   (let ((s (split-string x ",")))
+                     (cons (car s) (cadr s))))
+                 cands)))
+    (requires-pattern . 2)
+    (action . (("w3m" . arb:open-w3m)
+               ("Default Browser" . browse-url)
+               ("insert" . arb:insert)))))
+
+(defvar anything-c-source-apple-reference-other
+  `((name . "Other")
+    (candidates-file . ,(concat arb:cache-directory "apple-reference-browser-candidates-other"))
+    (filtered-candidate-transformer 
+     . (lambda (cands source)
+         (mapcar (lambda (x) 
+                   (let ((s (split-string x ",")))
+                     (cons (car s) (cadr s))))
+                 cands)))
+    (requires-pattern . 2)
+    (action . (("w3m" . arb:open-w3m)
+               ("Default Browser" . browse-url)
+               ("insert" . arb:insert)))))
 
 ;(arb:init t)
 ;(setq arb:open-w3m-other-buffer t)
