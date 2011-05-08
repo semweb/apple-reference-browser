@@ -135,8 +135,8 @@
                               others))
        (arb:other-cache-path)))))
 
-(defun arb:write-file-cache (apis file-name)
-  (with-temp-file (concat "~/" file-name)
+(defun arb:write-file-cache (apis path)
+  (with-temp-file path
     (dolist (api apis)
       (insert (car api))
       (insert ",")
@@ -189,20 +189,16 @@
                     ("insert" . arb:insert)))))))
 
 (defun arb:class-cache-path ()
-  ;; (concat arb:cache-directory arb:cache-name-prefix "class"))
-  (concat arb:cache-name-prefix "class"))
+  (concat arb:cache-directory arb:cache-name-prefix "class"))
 
 (defun arb:protocol-cache-path ()
-  ;; (concat arb:cache-directory arb:cache-name-prefix "protocol"))
-  (concat arb:cache-name-prefix "protocol"))
+  (concat arb:cache-directory arb:cache-name-prefix "protocol"))
 
 (defun arb:additions-cache-path ()
-  ;; (concat arb:cache-directory arb:cache-name-prefix "additions"))
-  (concat arb:cache-name-prefix "additions"))
+  (concat arb:cache-directory arb:cache-name-prefix "additions"))
 
 (defun arb:other-cache-path ()
-  ;; (concat arb:cache-directory arb:cache-name-prefix "other"))
-  (concat arb:cache-name-prefix "other"))
+  (concat arb:cache-directory arb:cache-name-prefix "other"))
 
 (arb:defsource anything-c-source-apple-reference-class
                "Class" 
